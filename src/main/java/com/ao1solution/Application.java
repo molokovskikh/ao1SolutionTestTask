@@ -27,7 +27,7 @@ public class Application implements ApplicationRunner {
     }
 
     @Override
-    public void run(ApplicationArguments args) throws Exception {
+    public void run(ApplicationArguments args) {
 
         if (!args.containsOption(CSV_FILES_DIR)) {
             System.out.println(DISPLAY_HELP);

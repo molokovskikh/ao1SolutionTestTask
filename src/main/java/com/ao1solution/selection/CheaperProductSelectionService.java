@@ -17,6 +17,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * <b>Cheaper product selection service</b>
@@ -25,9 +26,7 @@ import java.util.stream.Collectors;
 @Service
 public class CheaperProductSelectionService {
 
-    Logger logger = LoggerFactory.getLogger(CheaperProductSelectionService.class);
-
-    private final List<String> topProducts = new ArrayList();
+    private final Logger logger = LoggerFactory.getLogger(CheaperProductSelectionService.class);
 
     @Value("${app.same-product-id-retry-limit:20}")
     private Integer sameProductIdRetryLimit;
@@ -35,65 +34,38 @@ public class CheaperProductSelectionService {
     @Value("${app.records-total:1000}")
     private Integer recordsTotal;
 
+    private final ProductComparator productComparator = new ProductComparator();
 
     public void DoWork(String csvFilesDir, String resultCsvFile) {
 
         ForkJoinPool forkJoinPool = new ForkJoinPool();
         try {
-            List<Callable<Collection<String>>> invokerList = Files.list(Paths.get(csvFilesDir))
+            List<Callable<Collection<String>>> sortTasksList = Files.list(Paths.get(csvFilesDir))
                     .map(path -> handleCSVFile(path))
                     .collect(Collectors.toList());
 
-            List<Future<Collection<String>>> sortedProductLists = forkJoinPool.invokeAll(invokerList);
+            List<Future<Collection<String>>> sortedProductLists = forkJoinPool.invokeAll(sortTasksList);
 
-            sortedProductLists.forEach(collectionFuture -> {
-                try {
-                    Collection<String> productsPart = collectionFuture.get();
-                    topProducts.addAll(productsPart);
-                } catch (ExecutionException | InterruptedException e) {
-                    logger.debug(e.getMessage());
-                }
-            });
+            List<String> allSortedProducts = getAllSortedProducts(sortedProductLists);
 
+            Stream<String> finalProductsList = allSortedProducts.stream()
+                    .sorted(productComparator)
+                    .filter(getSameProductIdRetryLimitFilter())
+                    .limit(recordsTotal);
 
-            Map<String, Integer> sameProductIdRetryLimitMap = new HashMap<>();
-            Predicate<String> sameProductIdRetryLimitFilter = line -> {
-                String productId = ProductComparator.getProductId(line);
-                Integer count = sameProductIdRetryLimitMap.get(productId);
-                count = Objects.isNull(count) ? 1 : count + 1;
-                if (count > sameProductIdRetryLimit) {
-                    return false;
-                }
-                sameProductIdRetryLimitMap.put(productId, count);
-                return true;
-            };
+            writeResult(finalProductsList, resultCsvFile);
 
-            try (BufferedWriter bufferedWriter = Files.newBufferedWriter(Paths.get(resultCsvFile))) {
-                topProducts.stream()
-                        .sorted(new ProductComparator())
-                        .filter(sameProductIdRetryLimitFilter)
-                        .limit(recordsTotal)
-                        .forEach(product -> {
-                            try {
-                                bufferedWriter.write(product);
-                                bufferedWriter.newLine();
-                            } catch (IOException e) {
-                                logger.debug(e.getMessage());
-                            }
-                        });
-            }
-
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException | ExecutionException e) {
             logger.debug(e.getMessage());
         }
-    }
 
+    }
 
     private Callable<Collection<String>> handleCSVFile(Path pathCSVFile) {
         return () -> {
             List<String> list = Files.lines(pathCSVFile)
                     .parallel()
-                    .sorted(new ProductComparator())
+                    .sorted(productComparator)
                     .distinct()
                     .limit(recordsTotal)
                     .collect(Collectors.toList());
@@ -101,6 +73,51 @@ public class CheaperProductSelectionService {
             return list;
         };
     }
+
+    private Predicate<? super String> getSameProductIdRetryLimitFilter() {
+
+        Map<String, Integer> sameProductIdRetryLimitMap = new HashMap<>();
+
+        Predicate<String> sameProductIdRetryLimitFilter = line -> {
+            String productId = ProductComparator.getProductId(line);
+            Integer count = sameProductIdRetryLimitMap.get(productId);
+            count = Objects.isNull(count) ? 1 : count + 1;
+            if (count > sameProductIdRetryLimit) {
+                return false;
+            }
+            sameProductIdRetryLimitMap.put(productId, count);
+            return true;
+        };
+        return sameProductIdRetryLimitFilter;
+    }
+
+    private List<String> getAllSortedProducts(List<Future<Collection<String>>> sortedProductLists)
+            throws ExecutionException, InterruptedException {
+        List<String> result = new ArrayList<>();
+        for (Future<Collection<String>> sortedProduct : sortedProductLists) {
+            Collection<String> productsPart = sortedProduct.get();
+            result.addAll(productsPart);
+        }
+        return result;
+    }
+
+    private void writeResult(Stream<String> finalProductsList, String resultCsvFile) throws IOException {
+
+        try (BufferedWriter bufferedWriter = Files.newBufferedWriter(Paths.get(resultCsvFile))) {
+            finalProductsList
+                    .forEach(product -> {
+                        try {
+                            bufferedWriter.write(product);
+                            bufferedWriter.newLine();
+                        } catch (IOException e) {
+                            logger.debug(e.getMessage());
+                        }
+                    });
+        }
+    }
+
+
+
 
     void setSameProductIdRetryLimit(Integer sameProductIdRetryLimit) {
         this.sameProductIdRetryLimit = sameProductIdRetryLimit;

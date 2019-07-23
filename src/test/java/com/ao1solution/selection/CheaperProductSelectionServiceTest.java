@@ -39,7 +39,6 @@ public class CheaperProductSelectionServiceTest {
 
     @Before
     public void setUp() throws Exception {
-        //csvFilesDir = Files.createTempDirectory(Paths.get("/home/sergey/.ao1Solution"), APP_NAME);
         csvFilesDir = Files.createTempDirectory(APP_NAME);
         resultCsvFile = Files.createTempFile(APP_NAME, ".res");
         testDataGeneratorHelper.setSameProductIdRetryLimit(SAME_PRODUCT_ID_RETRY_LIMIT*2);

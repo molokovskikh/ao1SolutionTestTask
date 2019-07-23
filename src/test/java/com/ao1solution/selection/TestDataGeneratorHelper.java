@@ -24,7 +24,7 @@ public class TestDataGeneratorHelper {
 
     //Short time test
     static final int ROWS_NUMBER = 10000;
-    static final int FILES_NUMBER = 100;
+    static final int FILES_NUMBER = 1000;
 
     /*
     //Long time test
