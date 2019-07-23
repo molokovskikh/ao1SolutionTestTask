@@ -1,0 +1,12 @@
+spring:
+  main:
+    web-application-type: none
+
+logging:
+  level:
+    root: DEBUG
+    com.ao1solution: DEBUG
+
+app:
+  same-product-id-retry-limit: 20
+  records-total: 1000
